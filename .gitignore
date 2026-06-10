@@ -1,0 +1,8 @@
+# Dados locais do servidor (em produção ficam no volume /data)
+data/
+
+# Configuração local do Claude Code
+.claude/
+
+node_modules/
+*.tmp

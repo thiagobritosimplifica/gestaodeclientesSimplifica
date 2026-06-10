@@ -60,6 +60,14 @@ function addDays(dateStr, days) {
   return date.toISOString().split('T')[0];
 }
 
+function addMonths(dateStr, months) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() !== day) d.setDate(0); // clamp em meses mais curtos (ex.: 31 → 30/28)
+  return d.toISOString().split('T')[0];
+}
+
 function getToday() {
   const now = new Date();
   const y = now.getFullYear();
@@ -87,6 +95,29 @@ function generateMeetings(dataInicial) {
     label: label,
     status: '' // will be computed dynamically
   }));
+}
+
+// Gera as reuniões conforme o tipo de evento:
+// padrão (8 reuniões fixas), personalizado (nomes livres, semanais)
+// ou personalizado recorrente (mesmo evento repetido por 6 meses)
+function buildMeetings(dataInicial, opts) {
+  if (!opts || !opts.custom) return generateMeetings(dataInicial);
+  const nomes = opts.nomes.length ? opts.nomes : ['Reunião'];
+  if (opts.recorrente) {
+    const nome = nomes[0];
+    const limite = addMonths(dataInicial, 6);
+    const stepDays = opts.frequencia === 'quinzenal' ? 14 : 7;
+    const list = [];
+    let i = 0;
+    let d = dataInicial;
+    while (d <= limite) {
+      list.push({ data: d, label: nome, status: '' });
+      i++;
+      d = opts.frequencia === 'mensal' ? addMonths(dataInicial, i) : addDays(dataInicial, i * stepDays);
+    }
+    return list;
+  }
+  return nomes.map((n, i) => ({ data: addDays(dataInicial, i * 7), label: n, status: '' }));
 }
 
 function getNextMeetingDate(client) {
@@ -240,6 +271,15 @@ const $formDate = document.getElementById('formDate');
 const $formCloser = document.getElementById('formCloser');
 const $formObs = document.getElementById('formObs');
 const $meetingsPreview = document.getElementById('meetingsPreview');
+const $toggleCustom = document.getElementById('toggleCustom');
+const $toggleRecurring = document.getElementById('toggleRecurring');
+const $customEventArea = document.getElementById('customEventArea');
+const $recurringGroup = document.getElementById('recurringGroup');
+const $customNamesList = document.getElementById('customNamesList');
+const $customNamesLabel = document.getElementById('customNamesLabel');
+const $btnAddCustomName = document.getElementById('btnAddCustomName');
+const $formFreq = document.getElementById('formFreq');
+const $formDateLabelText = document.getElementById('formDateLabelText');
 const $deleteOverlay = document.getElementById('deleteOverlay');
 const $closersOverlay = document.getElementById('closersOverlay');
 const $closersList = document.getElementById('closersList');
@@ -493,6 +533,56 @@ function syncScrollLock() {
   document.body.classList.toggle('modal-open', anyOpen);
 }
 
+// ---- Custom Event Form ----
+
+function addCustomNameRow(value = '') {
+  const row = document.createElement('div');
+  row.className = 'custom-name-row';
+  row.innerHTML = `
+    <input type="text" class="form-input" placeholder="Ex: Reunião de Alinhamento" value="${escapeHtml(value)}" maxlength="60" autocomplete="off">
+    <button type="button" class="btn-remove-name" title="Remover" aria-label="Remover reunião">✕</button>
+  `;
+  $customNamesList.appendChild(row);
+}
+
+function getCustomNames() {
+  return [...$customNamesList.querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean);
+}
+
+function getFormMeetingOptions() {
+  return {
+    custom: $toggleCustom.checked,
+    nomes: getCustomNames(),
+    recorrente: $toggleCustom.checked && $toggleRecurring.checked,
+    frequencia: $formFreq.value
+  };
+}
+
+function updateCustomUI() {
+  const custom = $toggleCustom.checked;
+  const rec = custom && $toggleRecurring.checked;
+  $customEventArea.style.display = custom ? 'block' : 'none';
+  $formDateLabelText.textContent = custom ? 'Data da 1ª Reunião' : 'Data da 1ª Reunião (Onboarding)';
+  $recurringGroup.style.display = rec ? 'block' : 'none';
+  $customNamesLabel.textContent = rec ? 'Nome do evento recorrente' : 'Reuniões personalizadas';
+  $btnAddCustomName.style.display = rec ? 'none' : 'inline-flex';
+  if (rec) {
+    [...$customNamesList.querySelectorAll('.custom-name-row')].slice(1).forEach(r => r.remove());
+  }
+  if ($customNamesList.children.length === 0) addCustomNameRow();
+  updateMeetingsPreview();
+}
+
+function resetCustomForm(client = null) {
+  $toggleCustom.checked = client ? client.tipoEvento === 'personalizado' : false;
+  $toggleRecurring.checked = client ? !!client.recorrente : false;
+  $formFreq.value = (client && client.frequencia) || 'semanal';
+  $customNamesList.innerHTML = '';
+  const nomes = (client && client.eventosPersonalizados) || [];
+  nomes.forEach(n => addCustomNameRow(n));
+  updateCustomUI();
+}
+
 function renderCloserOptions(selected = '') {
   // Keep an option for a closer that was removed but is still assigned
   const names = selected && !closers.includes(selected) ? [...closers, selected] : closers;
@@ -514,7 +604,7 @@ function openModal(clientId = null) {
     $formDate.value = client.dataInicial;
     renderCloserOptions(client.responsavel);
     $formObs.value = client.observacoes || '';
-    updateMeetingsPreview();
+    resetCustomForm(client);
   } else {
     $modalTitle.textContent = 'Novo Cliente';
     $formClientName.value = '';
@@ -522,8 +612,7 @@ function openModal(clientId = null) {
     $formDate.value = '';
     renderCloserOptions();
     $formObs.value = '';
-    $meetingsPreview.innerHTML = '';
-    $meetingsPreview.style.display = 'none';
+    resetCustomForm();
   }
 
   $modalOverlay.classList.add('active');
@@ -545,10 +634,10 @@ function updateMeetingsPreview() {
     return;
   }
 
-  const meetings = generateMeetings(dateVal);
+  const meetings = buildMeetings(dateVal, getFormMeetingOptions());
   $meetingsPreview.style.display = 'block';
   $meetingsPreview.innerHTML = `
-    <div class="form-preview-title">Reuniões que serão geradas</div>
+    <div class="form-preview-title">Reuniões que serão geradas (${meetings.length})</div>
     ${meetings.map(m => `
       <div class="preview-meeting">
         ${dateChipHTML(m.data)}
@@ -573,7 +662,19 @@ function saveClient() {
     return;
   }
 
-  const reunioes = generateMeetings(dataInicial);
+  const opts = getFormMeetingOptions();
+  if (opts.custom && opts.nomes.length === 0) {
+    showToast('Adicione pelo menos uma reunião personalizada.', 'error');
+    return;
+  }
+
+  const reunioes = buildMeetings(dataInicial, opts);
+  const eventFields = {
+    tipoEvento: opts.custom ? 'personalizado' : 'padrao',
+    eventosPersonalizados: opts.custom ? opts.nomes : [],
+    recorrente: opts.recorrente,
+    frequencia: opts.recorrente ? opts.frequencia : ''
+  };
 
   if (editingClientId) {
     const idx = clients.findIndex(c => c.id === editingClientId);
@@ -585,7 +686,8 @@ function saveClient() {
         dataInicial,
         responsavel,
         reunioes,
-        observacoes
+        observacoes,
+        ...eventFields
       };
       showToast('Cliente atualizado com sucesso!');
     }
@@ -598,7 +700,8 @@ function saveClient() {
       dataInicial,
       reunioes,
       observacoes,
-      cardStatus: 'em_andamento'
+      cardStatus: 'em_andamento',
+      ...eventFields
     });
     showToast('Cliente cadastrado com sucesso!');
   }
@@ -725,6 +828,26 @@ $btnCancel.addEventListener('click', closeModal);
 $modalClose.addEventListener('click', closeModal);
 $btnSave.addEventListener('click', saveClient);
 $formDate.addEventListener('change', updateMeetingsPreview);
+
+// Evento personalizado / recorrente
+$toggleCustom.addEventListener('change', updateCustomUI);
+$toggleRecurring.addEventListener('change', updateCustomUI);
+$formFreq.addEventListener('change', updateMeetingsPreview);
+$btnAddCustomName.addEventListener('click', () => {
+  addCustomNameRow();
+  updateMeetingsPreview();
+  const inputs = $customNamesList.querySelectorAll('input');
+  inputs[inputs.length - 1].focus();
+});
+$customNamesList.addEventListener('input', updateMeetingsPreview);
+$customNamesList.addEventListener('click', (e) => {
+  const btn = e.target.closest('.btn-remove-name');
+  if (!btn) return;
+  const row = btn.closest('.custom-name-row');
+  if ($customNamesList.children.length > 1) row.remove();
+  else row.querySelector('input').value = '';
+  updateMeetingsPreview();
+});
 
 // Enter saves the form (except inside the multiline textarea)
 $modalOverlay.addEventListener('keydown', (e) => {

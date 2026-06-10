@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "mcp__Claude_Preview__preview_start",
-      "PowerShell(node --check \"app.js\")",
-      "PowerShell(if \\($?\\) { \"app.js OK\" })"
-    ]
-  }
-}
