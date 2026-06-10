@@ -68,6 +68,24 @@ function addMonths(dateStr, months) {
   return d.toISOString().split('T')[0];
 }
 
+function fmtDateLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Retorna a data (YYYY-MM-DD) da enésima/última ocorrência de um dia da
+// semana no mês. ordinal: '1'..'4' ou 'ultima'; weekday: 0 (dom) .. 6 (sáb)
+function nthWeekdayOfMonth(year, month, weekday, ordinal) {
+  if (ordinal === 'ultima') {
+    const last = new Date(year, month + 1, 0);
+    last.setDate(last.getDate() - ((last.getDay() - weekday + 7) % 7));
+    return fmtDateLocal(last);
+  }
+  const first = new Date(year, month, 1);
+  const day = 1 + ((weekday - first.getDay() + 7) % 7) + (parseInt(ordinal, 10) - 1) * 7;
+  const d = new Date(year, month, day);
+  return d.getMonth() === month ? fmtDateLocal(d) : null;
+}
+
 function getToday() {
   const now = new Date();
   const y = now.getFullYear();
@@ -84,6 +102,7 @@ function getMeetingStatus(meetingDate) {
 }
 
 function getCardStatus(reunioes) {
+  if (!reunioes || reunioes.length === 0) return 'em_andamento';
   const lastMeeting = reunioes[reunioes.length - 1];
   if (getMeetingStatus(lastMeeting.data) === 'passada') return 'finalizado';
   return 'em_andamento';
@@ -106,8 +125,20 @@ function buildMeetings(dataInicial, opts) {
   if (opts.recorrente) {
     const nome = nomes[0];
     const limite = addMonths(dataInicial, 6);
-    const stepDays = opts.frequencia === 'quinzenal' ? 14 : 7;
     const list = [];
+    if (opts.frequencia === 'mensal_dia') {
+      // Ex: "última sexta do mês" — calcula a ocorrência em cada mês da janela
+      const base = new Date(dataInicial + 'T12:00:00');
+      for (let m = 0; m <= 6; m++) {
+        const ref = new Date(base.getFullYear(), base.getMonth() + m, 1);
+        const ds = nthWeekdayOfMonth(ref.getFullYear(), ref.getMonth(), opts.diaSemana, opts.ordinal);
+        if (ds && ds >= dataInicial && ds <= limite) {
+          list.push({ data: ds, label: nome, status: '' });
+        }
+      }
+      return list;
+    }
+    const stepDays = opts.frequencia === 'quinzenal' ? 14 : 7;
     let i = 0;
     let d = dataInicial;
     while (d <= limite) {
@@ -279,6 +310,9 @@ const $customNamesList = document.getElementById('customNamesList');
 const $customNamesLabel = document.getElementById('customNamesLabel');
 const $btnAddCustomName = document.getElementById('btnAddCustomName');
 const $formFreq = document.getElementById('formFreq');
+const $weekPatternGroup = document.getElementById('weekPatternGroup');
+const $formOrdinal = document.getElementById('formOrdinal');
+const $formWeekday = document.getElementById('formWeekday');
 const $formDateLabelText = document.getElementById('formDateLabelText');
 const $deleteOverlay = document.getElementById('deleteOverlay');
 const $closersOverlay = document.getElementById('closersOverlay');
@@ -554,7 +588,9 @@ function getFormMeetingOptions() {
     custom: $toggleCustom.checked,
     nomes: getCustomNames(),
     recorrente: $toggleCustom.checked && $toggleRecurring.checked,
-    frequencia: $formFreq.value
+    frequencia: $formFreq.value,
+    ordinal: $formOrdinal.value,
+    diaSemana: parseInt($formWeekday.value, 10)
   };
 }
 
@@ -564,6 +600,7 @@ function updateCustomUI() {
   $customEventArea.style.display = custom ? 'block' : 'none';
   $formDateLabelText.textContent = custom ? 'Data da 1ª Reunião' : 'Data da 1ª Reunião (Onboarding)';
   $recurringGroup.style.display = rec ? 'block' : 'none';
+  $weekPatternGroup.style.display = rec && $formFreq.value === 'mensal_dia' ? 'block' : 'none';
   $customNamesLabel.textContent = rec ? 'Nome do evento recorrente' : 'Reuniões personalizadas';
   $btnAddCustomName.style.display = rec ? 'none' : 'inline-flex';
   if (rec) {
@@ -577,6 +614,8 @@ function resetCustomForm(client = null) {
   $toggleCustom.checked = client ? client.tipoEvento === 'personalizado' : false;
   $toggleRecurring.checked = client ? !!client.recorrente : false;
   $formFreq.value = (client && client.frequencia) || 'semanal';
+  $formOrdinal.value = (client && client.ordinalSemana) || 'ultima';
+  $formWeekday.value = (client && client.diaSemana != null && client.diaSemana !== '') ? String(client.diaSemana) : '5';
   $customNamesList.innerHTML = '';
   const nomes = (client && client.eventosPersonalizados) || [];
   nomes.forEach(n => addCustomNameRow(n));
@@ -669,11 +708,19 @@ function saveClient() {
   }
 
   const reunioes = buildMeetings(dataInicial, opts);
+  if (reunioes.length === 0) {
+    showToast('Nenhuma data foi gerada — ajuste a data inicial ou a recorrência.', 'error');
+    return;
+  }
+
+  const isWeekPattern = opts.recorrente && opts.frequencia === 'mensal_dia';
   const eventFields = {
     tipoEvento: opts.custom ? 'personalizado' : 'padrao',
     eventosPersonalizados: opts.custom ? opts.nomes : [],
     recorrente: opts.recorrente,
-    frequencia: opts.recorrente ? opts.frequencia : ''
+    frequencia: opts.recorrente ? opts.frequencia : '',
+    ordinalSemana: isWeekPattern ? opts.ordinal : '',
+    diaSemana: isWeekPattern ? opts.diaSemana : ''
   };
 
   if (editingClientId) {
@@ -832,7 +879,9 @@ $formDate.addEventListener('change', updateMeetingsPreview);
 // Evento personalizado / recorrente
 $toggleCustom.addEventListener('change', updateCustomUI);
 $toggleRecurring.addEventListener('change', updateCustomUI);
-$formFreq.addEventListener('change', updateMeetingsPreview);
+$formFreq.addEventListener('change', updateCustomUI);
+$formOrdinal.addEventListener('change', updateMeetingsPreview);
+$formWeekday.addEventListener('change', updateMeetingsPreview);
 $btnAddCustomName.addEventListener('click', () => {
   addCustomNameRow();
   updateMeetingsPreview();

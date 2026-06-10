@@ -1187,6 +1187,24 @@ body::after {
   box-shadow: 0 0 0 3px var(--accent-primary-glow);
 }
 
+/* Week pattern (ex: última sexta do mês) */
+.week-pattern {
+  display: flex;
+  gap: 10px;
+}
+
+.week-pattern-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
 /* Custom meeting names */
 .custom-name-row {
   display: flex;
