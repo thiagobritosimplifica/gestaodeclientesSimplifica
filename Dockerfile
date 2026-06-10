@@ -1,5 +1,14 @@
-FROM nginx:alpine
+FROM node:20-alpine
 
-COPY index.html app.js style.css logo.png /usr/share/nginx/html/
+WORKDIR /app
+
+COPY server.js index.html app.js style.css logo.png ./
+
+ENV PORT=80 \
+    DATA_DIR=/data
+
+VOLUME /data
 
 EXPOSE 80
+
+CMD ["node", "server.js"]

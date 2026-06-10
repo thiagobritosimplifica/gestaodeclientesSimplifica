@@ -130,9 +130,13 @@ function relativeDateLabel(dateStr) {
 }
 
 
-// ---- Data Layer (localStorage) ----
+// ---- Data Layer ----
+// Dados compartilhados via API do servidor (todos veem os mesmos clientes).
+// Fallback para localStorage quando não há servidor (ex.: arquivo aberto direto).
 
-function loadClients() {
+let remoteMode = false;
+
+function loadLocalClients() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -141,11 +145,7 @@ function loadClients() {
   }
 }
 
-function saveClients(clients) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
-}
-
-function loadClosers() {
+function loadLocalClosers() {
   try {
     const raw = localStorage.getItem(CLOSERS_KEY);
     const arr = raw ? JSON.parse(raw) : null;
@@ -155,17 +155,67 @@ function loadClosers() {
   }
 }
 
+function persist(endpoint, payload, localKey) {
+  if (remoteMode) {
+    fetch(endpoint, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(res => {
+      if (!res.ok) throw new Error(res.status);
+    }).catch(() => {
+      showToast('Falha ao salvar no servidor. Verifique a conexão.', 'error');
+    });
+  } else {
+    localStorage.setItem(localKey, JSON.stringify(payload));
+  }
+}
+
+function saveClients() {
+  persist('/api/clients', clients, STORAGE_KEY);
+}
+
 function saveClosers() {
-  localStorage.setItem(CLOSERS_KEY, JSON.stringify(closers));
+  persist('/api/closers', closers, CLOSERS_KEY);
+}
+
+async function loadData() {
+  try {
+    const res = await fetch('/api/data', { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    remoteMode = true;
+    clients = Array.isArray(data.clients) ? data.clients : [];
+    closers = Array.isArray(data.closers) && data.closers.length ? data.closers : [...DEFAULT_CLOSERS];
+    // Migração única: servidor vazio + dados locais antigos → envia para o servidor
+    if (clients.length === 0) {
+      const localClients = loadLocalClients();
+      if (localClients.length > 0) {
+        clients = localClients;
+        saveClients();
+      }
+    }
+  } catch {
+    remoteMode = false;
+    clients = loadLocalClients();
+    closers = loadLocalClosers();
+  }
 }
 
 // ---- State ----
 
-let clients = loadClients();
-let closers = loadClosers();
-let activeFilter = 'todos';
+let clients = [];
+let closers = [...DEFAULT_CLOSERS];
 let editingClientId = null;
 let searchQuery = '';
+
+// Preferência de filtro é individual (fica no navegador de cada usuário)
+const FILTER_KEY = 'simplifica_filtro';
+let activeFilter = localStorage.getItem(FILTER_KEY) || 'todos';
+
+function isValidFilter(filter) {
+  return ['todos', 'em_andamento', 'finalizados'].includes(filter) || closers.includes(filter);
+}
 
 // Recompute meeting + card statuses for the whole dataset (single pass).
 function recomputeStatuses() {
@@ -235,6 +285,7 @@ function updateFilterActive() {
 
 function setFilter(filter) {
   activeFilter = filter;
+  localStorage.setItem(FILTER_KEY, filter);
   updateFilterActive();
   renderCards();
 }
@@ -552,7 +603,7 @@ function saveClient() {
     showToast('Cliente cadastrado com sucesso!');
   }
 
-  saveClients(clients);
+  saveClients();
   closeModal();
   renderCards();
 }
@@ -661,7 +712,7 @@ function closeDeleteConfirm() {
 function executeDelete() {
   if (!deletingClientId) return;
   clients = clients.filter(c => c.id !== deletingClientId);
-  saveClients(clients);
+  saveClients();
   closeDeleteConfirm();
   renderCards();
   showToast('Cliente removido com sucesso!');
@@ -744,11 +795,55 @@ document.addEventListener('keydown', (e) => {
 
 // ---- Initialize ----
 
-function init() {
+async function init() {
   updateHeaderDate();
+  $cardsGrid.innerHTML = '<div class="empty-state"><p>Carregando dados…</p></div>';
+  await loadData();
+  if (!isValidFilter(activeFilter)) activeFilter = 'todos';
   renderCloserFilters();
   renderCards();
 }
+
+// ---- Sync between users (shared server data) ----
+
+// Ignore volatile computed fields (status/cardStatus) when comparing
+function normalizeClients(list) {
+  return JSON.stringify(list.map(c => ({
+    id: c.id,
+    nomeCliente: c.nomeCliente,
+    nomeProjeto: c.nomeProjeto,
+    responsavel: c.responsavel,
+    dataInicial: c.dataInicial,
+    observacoes: c.observacoes,
+    reunioes: (c.reunioes || []).map(r => ({ data: r.data, label: r.label }))
+  })));
+}
+
+async function syncFromServer() {
+  if (!remoteMode || document.hidden) return;
+  // Don't replace data while the user is editing in a modal
+  if (document.body.classList.contains('modal-open')) return;
+  try {
+    const res = await fetch('/api/data', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const remoteClients = Array.isArray(data.clients) ? data.clients : [];
+    const remoteClosers = Array.isArray(data.closers) && data.closers.length ? data.closers : [...DEFAULT_CLOSERS];
+    const changed = normalizeClients(remoteClients) !== normalizeClients(clients) ||
+      JSON.stringify(remoteClosers) !== JSON.stringify(closers);
+    if (changed) {
+      clients = remoteClients;
+      closers = remoteClosers;
+      if (!isValidFilter(activeFilter)) activeFilter = 'todos';
+      renderCloserFilters();
+      renderCards();
+    }
+  } catch {
+    // Offline momentâneo — tenta no próximo ciclo
+  }
+}
+
+setInterval(syncFromServer, 15 * 1000);
 
 // Keep statuses fresh: re-render when the calendar day changes
 // (page left open past midnight) or when the tab regains focus.
@@ -765,7 +860,10 @@ function refreshIfDayChanged() {
 
 setInterval(refreshIfDayChanged, 60 * 1000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) refreshIfDayChanged();
+  if (!document.hidden) {
+    refreshIfDayChanged();
+    syncFromServer();
+  }
 });
 
 init();
