@@ -1630,42 +1630,79 @@ body::after {
 }
 
 /* ========================================
-   HOVER TOOLTIP (o que deve ser feito)
+   SUBTÓPICOS EXPANSÍVEIS (clique no item)
    ======================================== */
-.hover-tooltip {
-  position: fixed;
-  z-index: 2500;
-  max-width: 280px;
+.timeline-item.expandable {
+  cursor: pointer;
+}
+
+.meeting-chevron {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.meeting-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.timeline-item.expandable:hover .meeting-chevron {
+  color: var(--text-primary);
+}
+
+.timeline-item.expanded .meeting-chevron {
+  transform: rotate(180deg);
+  color: var(--accent-primary);
+}
+
+.meeting-details {
+  margin: 2px 0 10px 34px;
   padding: 10px 12px;
-  background: #0f1a30;
-  border: 1px solid var(--border-card-hover);
+  background: rgba(30, 86, 255, 0.05);
+  border: 1px solid rgba(30, 86, 255, 0.14);
   border-radius: 10px;
-  box-shadow: var(--shadow-card-hover);
-  pointer-events: none;
-  opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  position: relative;
+  z-index: 1;
+  animation: detailsIn 0.18s ease-out;
 }
 
-.hover-tooltip.visible {
-  opacity: 1;
-  transform: translateY(0);
+@keyframes detailsIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.hover-tooltip-title {
+.meeting-details-title {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.7px;
   color: var(--accent-primary);
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
-.hover-tooltip-body {
+.meeting-detail-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--text-primary);
-  white-space: pre-line;
+  padding: 2px 0;
+}
+
+.detail-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--success);
+  margin-top: 7px;
+  flex-shrink: 0;
 }
 
 /* ========================================

@@ -474,10 +474,21 @@ function meetingItemHTML(client, r, mi) {
     side = `<span class="meeting-rel">${relativeDateLabel(r.data)}</span>`;
   }
   const desc = effectiveDescricao(r);
-  const descAttr = desc ? ` data-desc="${escapeHtml(desc)}"` : '';
-  const cls = `timeline-item ${status}${checked ? ' concluido' : ''}`;
+  const expanded = !!desc && expandedMeetings.has(`${client.id}:${mi}`);
+  const chevron = desc ? `
+    <span class="meeting-chevron" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </span>` : '';
+  const detailsHTML = expanded ? `
+    <div class="meeting-details">
+      <div class="meeting-details-title">O que deve ser feito</div>
+      ${desc.split('\n').map(l => l.trim()).filter(Boolean).map(l => `
+        <div class="meeting-detail-line"><span class="detail-dot"></span>${escapeHtml(l)}</div>
+      `).join('')}
+    </div>` : '';
+  const cls = `timeline-item ${status}${checked ? ' concluido' : ''}${desc ? ' expandable' : ''}${expanded ? ' expanded' : ''}`;
   return `
-    <div class="${cls}" data-client="${client.id}" data-idx="${mi}"${descAttr}>
+    <div class="${cls}" data-client="${client.id}" data-idx="${mi}"${desc ? ' data-expandable="1"' : ''}>
       <button type="button" class="timeline-marker" data-action="toggle" title="${checked ? 'Marcar como não concluído' : 'Marcar como concluído'}" aria-label="${checked ? 'Desmarcar' : 'Marcar como concluído'}: ${escapeHtml(r.label)}">${marker}</button>
       ${dateChipHTML(r.data)}
       <div class="timeline-body">
@@ -485,8 +496,10 @@ function meetingItemHTML(client, r, mi) {
         <span class="meeting-date">${getWeekdayFull(r.data)}</span>
       </div>
       ${side}
+      ${chevron}
       <button type="button" class="meeting-edit-btn" data-action="edit" title="Editar reunião" aria-label="Editar ${escapeHtml(r.label)}">${ICON_EDIT}</button>
     </div>
+    ${detailsHTML}
   `;
 }
 
@@ -495,7 +508,6 @@ function meetingsTrackHTML(client) {
 }
 
 function renderCards() {
-  hideHoverTooltip();
   closeMeetingPopover();
   // Preserva a posição de scroll de cada timeline entre renderizações
   const scrollPos = {};
@@ -717,39 +729,15 @@ function saveMeetingPopover() {
   showToast('Reunião atualizada!');
 }
 
-// ---- Hover tooltip (descrição do que deve ser feito) ----
+// ---- Expansão dos subtópicos (clique no item abre seção abaixo) ----
 
-let tooltipEl = null;
-let currentTooltipItem = null;
+const expandedMeetings = new Set();
 
-function showHoverTooltip(target, text) {
-  hideHoverTooltip();
-  if ($meetingPopover.classList.contains('active')) return;
-  tooltipEl = document.createElement('div');
-  tooltipEl.className = 'hover-tooltip';
-  const title = document.createElement('div');
-  title.className = 'hover-tooltip-title';
-  title.textContent = 'O que deve ser feito';
-  const body = document.createElement('div');
-  body.className = 'hover-tooltip-body';
-  body.textContent = text;
-  tooltipEl.append(title, body);
-  document.body.appendChild(tooltipEl);
-  const r = target.getBoundingClientRect();
-  const tr = tooltipEl.getBoundingClientRect();
-  let top = r.top - tr.height - 8;
-  if (top < 8) top = r.bottom + 8;
-  let left = r.left + r.width / 2 - tr.width / 2;
-  if (left < 8) left = 8;
-  if (left + tr.width > window.innerWidth - 8) left = window.innerWidth - tr.width - 8;
-  tooltipEl.style.top = top + 'px';
-  tooltipEl.style.left = left + 'px';
-  requestAnimationFrame(() => tooltipEl && tooltipEl.classList.add('visible'));
-}
-
-function hideHoverTooltip() {
-  if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
-  currentTooltipItem = null;
+function toggleMeetingDetails(clientId, idx) {
+  const key = `${clientId}:${idx}`;
+  if (expandedMeetings.has(key)) expandedMeetings.delete(key);
+  else expandedMeetings.add(key);
+  updateCardInPlace(clientId);
 }
 
 // ---- Modal ----
@@ -1123,34 +1111,20 @@ $searchInput.addEventListener('input', () => {
   renderCards();
 });
 
-// Card timeline interactions (toggle concluído / abrir editor da reunião)
+// Card timeline interactions:
+// marcador = check, lápis = editor, clique no item = expande os subtópicos
 $cardsGrid.addEventListener('click', (e) => {
-  const action = e.target.closest('[data-action]');
   const item = e.target.closest('.timeline-item');
-  if (!action || !item) return;
+  if (!item) return;
   const clientId = item.dataset.client;
   const idx = parseInt(item.dataset.idx, 10);
-  if (action.dataset.action === 'toggle') {
-    hideHoverTooltip();
-    toggleMeetingDone(clientId, idx);
-  } else if (action.dataset.action === 'edit') {
-    hideHoverTooltip();
-    openMeetingPopover(clientId, idx, item);
+  const action = e.target.closest('[data-action]');
+  if (action) {
+    if (action.dataset.action === 'toggle') toggleMeetingDone(clientId, idx);
+    else if (action.dataset.action === 'edit') openMeetingPopover(clientId, idx, item);
+    return;
   }
-});
-
-// Hover tooltip com a descrição (o que deve ser feito)
-$cardsGrid.addEventListener('mouseover', (e) => {
-  const item = e.target.closest('.timeline-item');
-  if (!item || !item.dataset.desc || item === currentTooltipItem) return;
-  currentTooltipItem = item;
-  showHoverTooltip(item, item.dataset.desc);
-});
-$cardsGrid.addEventListener('mouseout', (e) => {
-  const item = e.target.closest('.timeline-item');
-  if (!item || item !== currentTooltipItem) return;
-  if (e.relatedTarget && item.contains(e.relatedTarget)) return;
-  hideHoverTooltip();
+  if (item.dataset.expandable) toggleMeetingDetails(clientId, idx);
 });
 
 // Meeting editor popover
@@ -1171,15 +1145,9 @@ document.addEventListener('click', (e) => {
   closeMeetingPopover();
 });
 
-// Qualquer scroll (inclusive dentro das timelines) fecha popover e tooltip
-document.addEventListener('scroll', () => {
-  hideHoverTooltip();
-  closeMeetingPopover();
-}, true);
-window.addEventListener('resize', () => {
-  hideHoverTooltip();
-  closeMeetingPopover();
-});
+// Qualquer scroll (inclusive dentro das timelines) fecha o popover
+document.addEventListener('scroll', closeMeetingPopover, true);
+window.addEventListener('resize', closeMeetingPopover);
 
 $modalOverlay.addEventListener('click', (e) => {
   if (e.target === $modalOverlay) closeModal();
