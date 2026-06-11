@@ -346,6 +346,7 @@ const $statActive = document.getElementById('statActive');
 const $statDone = document.getElementById('statDone');
 const $meetingPopover = document.getElementById('meetingPopover');
 const $mpTitle = document.getElementById('mpTitle');
+const $mpLabel = document.getElementById('mpLabel');
 const $mpDate = document.getElementById('mpDate');
 const $mpDone = document.getElementById('mpDone');
 const $mpDesc = document.getElementById('mpDesc');
@@ -682,6 +683,7 @@ function openMeetingPopover(clientId, idx, anchorEl) {
   popoverClientId = clientId;
   popoverIdx = idx;
   $mpTitle.textContent = ref.meeting.label;
+  $mpLabel.value = ref.meeting.label;
   $mpDate.value = ref.meeting.data;
   $mpDone.checked = ref.meeting.concluido === true;
   $mpDesc.value = effectiveDescricao(ref.meeting);
@@ -701,6 +703,9 @@ function saveMeetingPopover() {
   if (!ref) { closeMeetingPopover(); return; }
   const newDate = $mpDate.value;
   if (!newDate) { showToast('Informe uma data para a reunião.', 'error'); return; }
+  const newLabel = $mpLabel.value.trim();
+  if (!newLabel) { showToast('Informe o nome da reunião.', 'error'); return; }
+  ref.meeting.label = newLabel;
   ref.meeting.data = newDate;
   ref.meeting.concluido = $mpDone.checked;
   ref.meeting.descricao = $mpDesc.value.trim();
