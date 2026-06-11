@@ -839,6 +839,22 @@ body::after {
   justify-content: center;
   position: relative;
   z-index: 1;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 2px solid var(--border-card);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.timeline-marker:hover {
+  transform: scale(1.12);
+  border-color: var(--success);
+}
+
+.timeline-marker:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.3);
 }
 
 .timeline-marker svg {
@@ -846,13 +862,68 @@ body::after {
   height: 11px;
 }
 
+/* Concluído manualmente — destaque verde */
+.timeline-item.concluido .timeline-marker {
+  background: linear-gradient(135deg, #22c993, #00d4ff);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(34, 201, 147, 0.45);
+}
+
+.timeline-item.concluido .meeting-label {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: rgba(34, 201, 147, 0.5);
+}
+
+.meeting-rel.done {
+  color: #2ee6a8;
+  background: rgba(34, 201, 147, 0.12);
+  border-color: rgba(34, 201, 147, 0.3);
+  font-weight: 600;
+}
+
+/* Botão de editar reunião (data / descrição) — aparece no hover do item */
+.meeting-edit-btn {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.meeting-edit-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.timeline-item:hover .meeting-edit-btn,
+.meeting-edit-btn:focus-visible {
+  opacity: 1;
+}
+
+.meeting-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
 .timeline-item.passada .timeline-marker {
   background: #0c2a3d;
+  border-color: transparent;
   color: var(--success);
 }
 
 .timeline-item.hoje .timeline-marker {
   background: var(--accent-primary);
+  border-color: transparent;
   animation: pulseMarker 2s ease-in-out infinite;
 }
 
@@ -1556,6 +1627,182 @@ body::after {
     opacity: 0;
     transform: translateX(40px);
   }
+}
+
+/* ========================================
+   HOVER TOOLTIP (o que deve ser feito)
+   ======================================== */
+.hover-tooltip {
+  position: fixed;
+  z-index: 2500;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: #0f1a30;
+  border: 1px solid var(--border-card-hover);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card-hover);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.hover-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hover-tooltip-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--accent-primary);
+  margin-bottom: 5px;
+}
+
+.hover-tooltip-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-line;
+}
+
+/* ========================================
+   MEETING POPOVER (editar reunião)
+   ======================================== */
+.meeting-popover {
+  position: fixed;
+  z-index: 1500;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card-hover);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-modal);
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  animation: popoverIn 0.18s ease-out;
+}
+
+.meeting-popover.active {
+  display: flex;
+}
+
+@keyframes popoverIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.meeting-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.meeting-popover-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-popover-close {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-card);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all var(--transition-fast);
+}
+
+.meeting-popover-close:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.mp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mp-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.meeting-popover .form-textarea {
+  min-height: 70px;
+}
+
+.mp-done {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.mp-done input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.mp-done-box {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-card-hover);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.mp-done input:checked + .mp-done-box {
+  background: linear-gradient(135deg, #22c993, #00d4ff);
+  border-color: transparent;
+}
+
+.mp-done input:checked + .mp-done-box::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.mp-done input:focus-visible + .mp-done-box {
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.3);
+}
+
+.mp-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.mp-actions .btn-cancel,
+.mp-actions .btn-save {
+  padding: 8px 18px;
 }
 
 /* ========================================

@@ -6,7 +6,6 @@
 // ---- Constants ----
 const MEETING_LABELS = [
   'Onboarding',
-  'Kick Off',
   'Apresentação do Projeto',
   'Apresentação da Implementação',
   'Treinamento',
@@ -14,6 +13,21 @@ const MEETING_LABELS = [
   'Acompanhamento',
   'Reunião de Finalização'
 ];
+
+// Descrições padrão (checklist) por tipo de reunião do projeto base.
+// Aparecem ao passar o mouse sobre o item e ficam pré-preenchidas na edição.
+const MEETING_DESCRICOES = {
+  'Onboarding': 'Reunião de kickoff feita\nAcessos recebidos\nAnálise de atendimento realizada',
+  'Apresentação do Projeto': 'Etapas do funil definidas\nPlanejamento de CRM\nPlanejamento de automações',
+  'Apresentação da Implementação': 'Pipeline criado no CRM\nCampos personalizados criados\nIntegrações feitas',
+  'Treinamento': 'Treinamento realizado\nTime acessando o CRM corretamente\nPlaybook entregue'
+};
+
+// Descrição efetiva: clientes antigos (sem o campo) caem no padrão por rótulo;
+// uma vez editada/limpa, o valor salvo prevalece.
+function effectiveDescricao(r) {
+  return r.descricao === undefined ? (MEETING_DESCRICOES[r.label] || '') : r.descricao;
+}
 
 const STORAGE_KEY = 'simplifica_clientes';
 const CLOSERS_KEY = 'simplifica_closers';
@@ -108,12 +122,18 @@ function getCardStatus(reunioes) {
   return 'em_andamento';
 }
 
-function generateMeetings(dataInicial) {
-  return MEETING_LABELS.map((label, i) => ({
-    data: addDays(dataInicial, i * 7),
-    label: label,
+function makeMeeting(data, label) {
+  return {
+    data,
+    label,
+    descricao: MEETING_DESCRICOES[label] || '',
+    concluido: false,
     status: '' // will be computed dynamically
-  }));
+  };
+}
+
+function generateMeetings(dataInicial) {
+  return MEETING_LABELS.map((label, i) => makeMeeting(addDays(dataInicial, i * 7), label));
 }
 
 // Gera as reuniões conforme o tipo de evento:
@@ -133,7 +153,7 @@ function buildMeetings(dataInicial, opts) {
         const ref = new Date(base.getFullYear(), base.getMonth() + m, 1);
         const ds = nthWeekdayOfMonth(ref.getFullYear(), ref.getMonth(), opts.diaSemana, opts.ordinal);
         if (ds && ds >= dataInicial && ds <= limite) {
-          list.push({ data: ds, label: nome, status: '' });
+          list.push(makeMeeting(ds, nome));
         }
       }
       return list;
@@ -142,13 +162,13 @@ function buildMeetings(dataInicial, opts) {
     let i = 0;
     let d = dataInicial;
     while (d <= limite) {
-      list.push({ data: d, label: nome, status: '' });
+      list.push(makeMeeting(d, nome));
       i++;
       d = opts.frequencia === 'mensal' ? addMonths(dataInicial, i) : addDays(dataInicial, i * stepDays);
     }
     return list;
   }
-  return nomes.map((n, i) => ({ data: addDays(dataInicial, i * 7), label: n, status: '' }));
+  return nomes.map((n, i) => makeMeeting(addDays(dataInicial, i * 7), n));
 }
 
 function getNextMeetingDate(client) {
@@ -324,6 +344,11 @@ const $headerDateDay = document.getElementById('headerDateDay');
 const $headerDateFull = document.getElementById('headerDateFull');
 const $statActive = document.getElementById('statActive');
 const $statDone = document.getElementById('statDone');
+const $meetingPopover = document.getElementById('meetingPopover');
+const $mpTitle = document.getElementById('mpTitle');
+const $mpDate = document.getElementById('mpDate');
+const $mpDone = document.getElementById('mpDone');
+const $mpDesc = document.getElementById('mpDesc');
 
 // ---- Header Date ----
 
@@ -421,7 +446,63 @@ function updateStats() {
 
 // ---- Render Cards ----
 
+const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+
+// Uma reunião conta como "feita" se foi marcada manualmente OU se a data passou
+function isMeetingDone(r) {
+  return r.concluido === true || getMeetingStatus(r.data) === 'passada';
+}
+
+function cardProgress(client) {
+  const total = client.reunioes.length;
+  const done = client.reunioes.filter(isMeetingDone).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return { done, total, pct };
+}
+
+function meetingItemHTML(client, r, mi) {
+  const status = getMeetingStatus(r.data);
+  const checked = r.concluido === true;
+  const marker = (checked || status === 'passada') ? ICON_CHECK : '';
+  let side = '';
+  if (checked) {
+    side = '<span class="meeting-rel done">✓ Concluído</span>';
+  } else if (status === 'hoje') {
+    side = '<span class="meeting-badge">Hoje</span>';
+  } else if (status === 'futura') {
+    side = `<span class="meeting-rel">${relativeDateLabel(r.data)}</span>`;
+  }
+  const desc = effectiveDescricao(r);
+  const descAttr = desc ? ` data-desc="${escapeHtml(desc)}"` : '';
+  const cls = `timeline-item ${status}${checked ? ' concluido' : ''}`;
+  return `
+    <div class="${cls}" data-client="${client.id}" data-idx="${mi}"${descAttr}>
+      <button type="button" class="timeline-marker" data-action="toggle" title="${checked ? 'Marcar como não concluído' : 'Marcar como concluído'}" aria-label="${checked ? 'Desmarcar' : 'Marcar como concluído'}: ${escapeHtml(r.label)}">${marker}</button>
+      ${dateChipHTML(r.data)}
+      <div class="timeline-body">
+        <span class="meeting-label">${escapeHtml(r.label)}</span>
+        <span class="meeting-date">${getWeekdayFull(r.data)}</span>
+      </div>
+      ${side}
+      <button type="button" class="meeting-edit-btn" data-action="edit" title="Editar reunião" aria-label="Editar ${escapeHtml(r.label)}">${ICON_EDIT}</button>
+    </div>
+  `;
+}
+
+function meetingsTrackHTML(client) {
+  return client.reunioes.map((r, mi) => meetingItemHTML(client, r, mi)).join('');
+}
+
 function renderCards() {
+  hideHoverTooltip();
+  closeMeetingPopover();
+  // Preserva a posição de scroll de cada timeline entre renderizações
+  const scrollPos = {};
+  $cardsGrid.querySelectorAll('.client-card').forEach(card => {
+    const tl = card.querySelector('.card-timeline');
+    if (tl && tl.scrollTop) scrollPos[card.dataset.id] = tl.scrollTop;
+  });
+
   recomputeStatuses();
   const filtered = filterClients();
   updateStats();
@@ -466,31 +547,8 @@ function renderCards() {
     const statusBadgeClass = isFinalizado ? 'finalizado' : 'em-andamento';
     const statusBadgeText = isFinalizado ? 'Projeto Finalizado' : 'Em andamento';
 
-    const done = client.reunioes.filter(r => getMeetingStatus(r.data) === 'passada').length;
-    const total = client.reunioes.length;
-    const pct = Math.round((done / total) * 100);
-
-    const meetingsHTML = client.reunioes.map(r => {
-      const status = getMeetingStatus(r.data);
-      const marker = status === 'passada' ? ICON_CHECK : '';
-      let side = '';
-      if (status === 'hoje') {
-        side = '<span class="meeting-badge">Hoje</span>';
-      } else if (status === 'futura') {
-        side = `<span class="meeting-rel">${relativeDateLabel(r.data)}</span>`;
-      }
-      return `
-        <div class="timeline-item ${status}">
-          <div class="timeline-marker">${marker}</div>
-          ${dateChipHTML(r.data)}
-          <div class="timeline-body">
-            <span class="meeting-label">${r.label}</span>
-            <span class="meeting-date">${getWeekdayFull(r.data)}</span>
-          </div>
-          ${side}
-        </div>
-      `;
-    }).join('');
+    const { done, total, pct } = cardProgress(client);
+    const meetingsHTML = meetingsTrackHTML(client);
 
     const obsHTML = client.observacoes ? `
       <div class="card-obs">
@@ -545,6 +603,12 @@ function renderCards() {
       </article>
     `;
   }).join('');
+
+  // Restaura a posição de scroll das timelines
+  Object.entries(scrollPos).forEach(([id, top]) => {
+    const tl = $cardsGrid.querySelector(`.client-card[data-id="${id}"] .card-timeline`);
+    if (tl) tl.scrollTop = top;
+  });
 }
 
 function escapeHtml(text) {
@@ -554,6 +618,133 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ---- Per-item meeting interactions (check / data / descrição) ----
+
+function findMeeting(clientId, idx) {
+  const client = clients.find(c => c.id === clientId);
+  if (!client || !client.reunioes || !client.reunioes[idx]) return null;
+  return { client, meeting: client.reunioes[idx] };
+}
+
+// Atualiza apenas um card no lugar (sem re-renderizar a grade toda) —
+// mantém o scroll e evita re-disparar a animação de entrada
+function updateCardInPlace(clientId) {
+  const client = clients.find(c => c.id === clientId);
+  const card = $cardsGrid.querySelector(`.client-card[data-id="${clientId}"]`);
+  if (!client || !card) { renderCards(); return; }
+  client.reunioes.forEach(r => { r.status = getMeetingStatus(r.data); });
+  client.cardStatus = getCardStatus(client.reunioes);
+  const isFinalizado = client.cardStatus === 'finalizado';
+  card.classList.toggle('finalizado', isFinalizado);
+  const badge = card.querySelector('.status-badge');
+  badge.className = `status-badge ${isFinalizado ? 'finalizado' : 'em-andamento'}`;
+  badge.textContent = isFinalizado ? 'Projeto Finalizado' : 'Em andamento';
+  const { done, total, pct } = cardProgress(client);
+  card.querySelector('.progress-fill').style.width = pct + '%';
+  card.querySelector('.progress-text').textContent = `${done} de ${total}`;
+  card.querySelector('.timeline-track').innerHTML = meetingsTrackHTML(client);
+  updateStats();
+}
+
+function toggleMeetingDone(clientId, idx) {
+  const ref = findMeeting(clientId, idx);
+  if (!ref) return;
+  ref.meeting.concluido = !(ref.meeting.concluido === true);
+  saveClients();
+  updateCardInPlace(clientId);
+}
+
+// ---- Meeting editor popover ----
+
+let popoverClientId = null;
+let popoverIdx = null;
+
+function positionPopover(anchorEl) {
+  const r = anchorEl.getBoundingClientRect();
+  $meetingPopover.style.visibility = 'hidden';
+  $meetingPopover.classList.add('active');
+  const pr = $meetingPopover.getBoundingClientRect();
+  let top = r.bottom + 6;
+  if (top + pr.height > window.innerHeight - 8) top = Math.max(8, r.top - pr.height - 6);
+  let left = r.left;
+  if (left + pr.width > window.innerWidth - 8) left = window.innerWidth - pr.width - 8;
+  if (left < 8) left = 8;
+  $meetingPopover.style.top = top + 'px';
+  $meetingPopover.style.left = left + 'px';
+  $meetingPopover.style.visibility = '';
+}
+
+function openMeetingPopover(clientId, idx, anchorEl) {
+  const ref = findMeeting(clientId, idx);
+  if (!ref) return;
+  popoverClientId = clientId;
+  popoverIdx = idx;
+  $mpTitle.textContent = ref.meeting.label;
+  $mpDate.value = ref.meeting.data;
+  $mpDone.checked = ref.meeting.concluido === true;
+  $mpDesc.value = effectiveDescricao(ref.meeting);
+  positionPopover(anchorEl);
+  setTimeout(() => $mpDate.focus(), 50);
+}
+
+function closeMeetingPopover() {
+  if (!$meetingPopover.classList.contains('active')) return;
+  $meetingPopover.classList.remove('active');
+  popoverClientId = null;
+  popoverIdx = null;
+}
+
+function saveMeetingPopover() {
+  const ref = findMeeting(popoverClientId, popoverIdx);
+  if (!ref) { closeMeetingPopover(); return; }
+  const newDate = $mpDate.value;
+  if (!newDate) { showToast('Informe uma data para a reunião.', 'error'); return; }
+  ref.meeting.data = newDate;
+  ref.meeting.concluido = $mpDone.checked;
+  ref.meeting.descricao = $mpDesc.value.trim();
+  // Mantém a timeline em ordem cronológica após mudar a data
+  ref.client.reunioes.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+  saveClients();
+  closeMeetingPopover();
+  renderCards();
+  showToast('Reunião atualizada!');
+}
+
+// ---- Hover tooltip (descrição do que deve ser feito) ----
+
+let tooltipEl = null;
+let currentTooltipItem = null;
+
+function showHoverTooltip(target, text) {
+  hideHoverTooltip();
+  if ($meetingPopover.classList.contains('active')) return;
+  tooltipEl = document.createElement('div');
+  tooltipEl.className = 'hover-tooltip';
+  const title = document.createElement('div');
+  title.className = 'hover-tooltip-title';
+  title.textContent = 'O que deve ser feito';
+  const body = document.createElement('div');
+  body.className = 'hover-tooltip-body';
+  body.textContent = text;
+  tooltipEl.append(title, body);
+  document.body.appendChild(tooltipEl);
+  const r = target.getBoundingClientRect();
+  const tr = tooltipEl.getBoundingClientRect();
+  let top = r.top - tr.height - 8;
+  if (top < 8) top = r.bottom + 8;
+  let left = r.left + r.width / 2 - tr.width / 2;
+  if (left < 8) left = 8;
+  if (left + tr.width > window.innerWidth - 8) left = window.innerWidth - tr.width - 8;
+  tooltipEl.style.top = top + 'px';
+  tooltipEl.style.left = left + 'px';
+  requestAnimationFrame(() => tooltipEl && tooltipEl.classList.add('visible'));
+}
+
+function hideHoverTooltip() {
+  if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
+  currentTooltipItem = null;
 }
 
 // ---- Modal ----
@@ -726,13 +917,27 @@ function saveClient() {
   if (editingClientId) {
     const idx = clients.findIndex(c => c.id === editingClientId);
     if (idx !== -1) {
+      const existing = clients[idx];
+      // Se a configuração do cronograma não mudou, preserva as reuniões
+      // existentes (com seus checks, datas e descrições já editados no card)
+      const scheduleSame =
+        existing.dataInicial === dataInicial &&
+        (existing.tipoEvento || 'padrao') === eventFields.tipoEvento &&
+        JSON.stringify(existing.eventosPersonalizados || []) === JSON.stringify(eventFields.eventosPersonalizados) &&
+        !!existing.recorrente === !!eventFields.recorrente &&
+        (existing.frequencia || '') === eventFields.frequencia &&
+        String(existing.ordinalSemana || '') === String(eventFields.ordinalSemana || '') &&
+        String(existing.diaSemana ?? '') === String(eventFields.diaSemana ?? '');
+      const reunioesFinal = scheduleSame && Array.isArray(existing.reunioes) && existing.reunioes.length
+        ? existing.reunioes
+        : reunioes;
       clients[idx] = {
-        ...clients[idx],
+        ...existing,
         nomeCliente,
         nomeProjeto,
         dataInicial,
         responsavel,
-        reunioes,
+        reunioes: reunioesFinal,
         observacoes,
         ...eventFields
       };
@@ -913,6 +1118,64 @@ $searchInput.addEventListener('input', () => {
   renderCards();
 });
 
+// Card timeline interactions (toggle concluído / abrir editor da reunião)
+$cardsGrid.addEventListener('click', (e) => {
+  const action = e.target.closest('[data-action]');
+  const item = e.target.closest('.timeline-item');
+  if (!action || !item) return;
+  const clientId = item.dataset.client;
+  const idx = parseInt(item.dataset.idx, 10);
+  if (action.dataset.action === 'toggle') {
+    hideHoverTooltip();
+    toggleMeetingDone(clientId, idx);
+  } else if (action.dataset.action === 'edit') {
+    hideHoverTooltip();
+    openMeetingPopover(clientId, idx, item);
+  }
+});
+
+// Hover tooltip com a descrição (o que deve ser feito)
+$cardsGrid.addEventListener('mouseover', (e) => {
+  const item = e.target.closest('.timeline-item');
+  if (!item || !item.dataset.desc || item === currentTooltipItem) return;
+  currentTooltipItem = item;
+  showHoverTooltip(item, item.dataset.desc);
+});
+$cardsGrid.addEventListener('mouseout', (e) => {
+  const item = e.target.closest('.timeline-item');
+  if (!item || item !== currentTooltipItem) return;
+  if (e.relatedTarget && item.contains(e.relatedTarget)) return;
+  hideHoverTooltip();
+});
+
+// Meeting editor popover
+document.getElementById('mpSave').addEventListener('click', saveMeetingPopover);
+document.getElementById('mpCancel').addEventListener('click', closeMeetingPopover);
+document.getElementById('mpClose').addEventListener('click', closeMeetingPopover);
+$meetingPopover.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    saveMeetingPopover();
+  }
+});
+
+// Fecha popover ao clicar fora
+document.addEventListener('click', (e) => {
+  if (!$meetingPopover.classList.contains('active')) return;
+  if (e.target.closest('#meetingPopover') || e.target.closest('[data-action="edit"]')) return;
+  closeMeetingPopover();
+});
+
+// Qualquer scroll (inclusive dentro das timelines) fecha popover e tooltip
+document.addEventListener('scroll', () => {
+  hideHoverTooltip();
+  closeMeetingPopover();
+}, true);
+window.addEventListener('resize', () => {
+  hideHoverTooltip();
+  closeMeetingPopover();
+});
+
 $modalOverlay.addEventListener('click', (e) => {
   if (e.target === $modalOverlay) closeModal();
 });
@@ -955,7 +1218,9 @@ $closersList.addEventListener('click', (e) => {
 // Keyboard shortcut: Escape to close modals
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    if ($deleteOverlay.classList.contains('active')) {
+    if ($meetingPopover.classList.contains('active')) {
+      closeMeetingPopover();
+    } else if ($deleteOverlay.classList.contains('active')) {
       closeDeleteConfirm();
     } else if ($closersOverlay.classList.contains('active')) {
       closeClosersModal();
@@ -987,7 +1252,12 @@ function normalizeClients(list) {
     responsavel: c.responsavel,
     dataInicial: c.dataInicial,
     observacoes: c.observacoes,
-    reunioes: (c.reunioes || []).map(r => ({ data: r.data, label: r.label }))
+    reunioes: (c.reunioes || []).map(r => ({
+      data: r.data,
+      label: r.label,
+      concluido: r.concluido === true,
+      descricao: r.descricao ?? null
+    }))
   })));
 }
 

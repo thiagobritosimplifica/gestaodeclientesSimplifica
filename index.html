@@ -240,6 +240,31 @@
     </div>
   </div>
 
+  <!-- ======== POPOVER — EDITAR REUNIÃO ======== -->
+  <div class="meeting-popover" id="meetingPopover" role="dialog" aria-modal="false" aria-label="Editar reunião">
+    <div class="meeting-popover-head">
+      <span class="meeting-popover-title" id="mpTitle">Reunião</span>
+      <button class="meeting-popover-close" id="mpClose" aria-label="Fechar">✕</button>
+    </div>
+    <label class="mp-field">
+      <span class="mp-label">Data</span>
+      <input type="date" id="mpDate" class="form-input">
+    </label>
+    <label class="mp-done" for="mpDone">
+      <input type="checkbox" id="mpDone">
+      <span class="mp-done-box"></span>
+      <span>Marcar como concluído</span>
+    </label>
+    <label class="mp-field">
+      <span class="mp-label">O que deve ser feito</span>
+      <textarea id="mpDesc" class="form-textarea" placeholder="Uma tarefa por linha..."></textarea>
+    </label>
+    <div class="mp-actions">
+      <button class="btn-cancel" id="mpCancel">Cancelar</button>
+      <button class="btn-save" id="mpSave">Salvar</button>
+    </div>
+  </div>
+
   <!-- ======== TOAST CONTAINER ======== -->
   <div class="toast-container" id="toastContainer"></div>
 
